@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.keenetic.account.keycloak.md5;
 
 // import org.jboss.logging.Logger;
@@ -24,6 +23,7 @@ import org.keycloak.credential.CredentialModel;
 import org.keycloak.credential.hash.PasswordHashProvider;
 import org.keycloak.models.PasswordPolicy;
 import org.keycloak.models.UserCredentialModel;
+import org.keycloak.models.credential.PasswordCredentialModel;
 
 /**
  * @author <a href="mailto:hokum@dived.me">Andrey Kotov</a>
@@ -31,7 +31,6 @@ import org.keycloak.models.UserCredentialModel;
 public class MD5PasswordHashProvider implements PasswordHashProvider {
 
     // https://github.com/keycloak/keycloak/blob/master/server-spi-private/src/main/java/org/keycloak/credential/hash/Pbkdf2PasswordHashProvider.java
-
     private final String providerId;
 
     public MD5PasswordHashProvider(String providerId) {
@@ -39,30 +38,35 @@ public class MD5PasswordHashProvider implements PasswordHashProvider {
     }
 
     @Override
-    public boolean policyCheck(PasswordPolicy policy, CredentialModel credential) {
+    public boolean policyCheck(PasswordPolicy policy, PasswordCredentialModel credential) {
         // no need to check hash iterations, as MD5 doesn't use it
-        return providerId.equals(credential.getAlgorithm());
+        return providerId.equals(credential.getPasswordCredentialData().getAlgorithm());
     }
 
     @Override
-    public String encode(String rawPassword, int iterations) {
+    public PasswordCredentialModel encodedCredential(String rawPassword, int iterations) {
         String hashedPassword = "";
+        
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
             md.update(rawPassword.getBytes());
-            BigInteger digestInt = new BigInteger(1,md.digest());
+            BigInteger digestInt = new BigInteger(1, md.digest());
             StringBuilder sbZeroes = new StringBuilder(digestInt.toString(16));
-            while(sbZeroes.length() < 32 ){ // add leading zeroes to 32 chars
+            while (sbZeroes.length() < 32) { // add leading zeroes to 32 chars
                 sbZeroes.insert(0, "0");
             }
             hashedPassword = sbZeroes.toString();
-        } catch (java.security.NoSuchAlgorithmException ignored) {}
-        return hashedPassword;
+        } catch (java.security.NoSuchAlgorithmException ignored) {
+        }
+        
+        return PasswordCredentialModel.createFromValues(
+                providerId, new byte[0], 0, hashedPassword
+        );
     }
 
     @Override
     public void encode(String rawPassword, int iterations, CredentialModel credential) {
-        String password = this.encode(rawPassword, iterations);
+        String password = this.encodedCredential(rawPassword, iterations).getSecretData();
         credential.setAlgorithm(providerId);
         credential.setType(UserCredentialModel.PASSWORD);
         credential.setHashIterations(0);
@@ -76,8 +80,10 @@ public class MD5PasswordHashProvider implements PasswordHashProvider {
     }
 
     @Override
-    public boolean verify(String rawPassword, CredentialModel credential) {
-        return this.encode(rawPassword, 0).equals(credential.getValue());
+    public boolean verify(String rawPassword, PasswordCredentialModel credential) {
+        String given = this.encodedCredential(rawPassword, 0).getPasswordSecretData().getValue();
+        String expected = credential.getPasswordSecretData().getValue();
+        return given.equals(expected);
     }
 
 }
